@@ -12,12 +12,20 @@ import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from "v4-core/src/types/BeforeSwapDelta.sol";
 
 contract GoChuJang is BaseHook {
+    struct HookState {
+        int256 totalZct; // 제로쿠폰본드 양
+        int256 totalEth; // 이더양
+        int256 totalLp; // 발행된 lp 토큰양
+        int256 scalarRoot;
+        uint256 expiry;
+        uint256 lnFeeRateRoot;
+        uint256 reserveFeePercent; // base 100
+        uint256 lastLnImpliedRate;
+    }
+
     using PoolIdLibrary for PoolKey;
 
-    // NOTE: ---------------------------------------------------------
-    // state variables should typically be unique to a pool
-    // a single hook contract should be able to service multiple pools
-    // ---------------------------------------------------------------
+    mapping(PoolId id => HookState) internal _pools;
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
 
@@ -40,20 +48,11 @@ contract GoChuJang is BaseHook {
         });
     }
 
-    function poolInitialize(
-        PoolId poolId,
-        int256 scalarRoot,
-        int256 initialAnchor,
-        uint80 lnFeeRateRoot
-    ) external {
-        
+    function poolInitialize(PoolId poolId, int256 scalarRoot, int256 initialAnchor, uint80 lnFeeRateRoot) external {
+        HookState storage hs = _pools[poolId];
     }
 
-    function beforeInitialize(address, PoolKey calldata key, uint160 sqrtPriceX96) 
-        external
-        override
-        returns (bytes4)
-    {
+    function beforeInitialize(address, PoolKey calldata key, uint160 sqrtPriceX96) external override returns (bytes4) {
         // TODO IMPLEMENT
         return BaseHook.beforeInitialize.selector;
     }
@@ -63,22 +62,22 @@ contract GoChuJang is BaseHook {
         override
         returns (bytes4, BeforeSwapDelta, uint24)
     {
+        PoolId id = key.toId();
+        HookState memory hs = _pools[id];
         bool exactInput = swapParams.amountSpecified < 0;
-        (Currency specified, Currency unspecified) = (swapParams.zeroForOne == exactInput) ? (key.currency0, key.currency1) : (key.currency1, key.currency0);
+        (Currency specified, Currency unspecified) =
+            (swapParams.zeroForOne == exactInput) ? (key.currency0, key.currency1) : (key.currency1, key.currency0);
         int256 specifiedAmount = exactInput ? -swapParams.amountSpecified : swapParams.amountSpecified;
         int256 unspecifiedAmount;
         BeforeSwapDelta returnDelta;
         if (exactInput) {
-            unspecifiedAmount = _swap();
+            unspecifiedAmount = _swap(hs, specified, unspecified, uint256(specifiedAmount), block.timestamp);
             returnDelta = toBeforeSwapDelta(int128(specifiedAmount), int128(-unspecifiedAmount));
         } else {
-            unspecifiedAmount = _swap();
+            // TODO FIX IT
+            unspecifiedAmount = _swap(hs, specified, unspecified, uint256(specifiedAmount), block.timestamp);
             returnDelta = toBeforeSwapDelta(int128(-specifiedAmount), int128(unspecifiedAmount));
         }
         return (BaseHook.beforeSwap.selector, returnDelta, 0);
-    }
-
-    function _swap() internal pure returns (int256) {
-        return 0;
     }
 }
